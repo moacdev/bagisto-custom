@@ -38,6 +38,10 @@
 
                 {!! view_render_event('bagisto.shop.checkout.cart.logo.after') !!}
             </div>
+
+            @guest('customer')
+                @include('shop::checkout.login')
+            @endguest
         </div>
     </div>
 
@@ -331,8 +335,8 @@
                                 <x-shop::button
                                     class="secondary-button max-h-[55px] rounded-2xl"
                                     :title="trans('shop::app.checkout.cart.index.update-cart')"
-                                    :loading="false"
-                                    ref="updateCart"
+                                    ::loading="isStoring"
+                                    ::disabled="isStoring"
                                     @click="update()"
                                 />
 
@@ -386,11 +390,13 @@
                         },
 
                         isLoading: true,
+
+                        isStoring: false,
                     }
                 },
 
                 mounted() {
-                    this.get();
+                    this.getCart();
                 },
 
                 computed: {
@@ -400,7 +406,7 @@
                 },
 
                 methods: {
-                    get() {
+                    getCart() {
                         this.$axios.get('{{ route('shop.api.checkout.cart.index') }}')
                             .then(response => {
                                 this.cart = response.data.data;
@@ -425,7 +431,7 @@
                     },
 
                     update() {
-                        this.$refs.updateCart.isLoading = true;
+                        this.isStoring = true;
 
                         this.$axios.put('{{ route('shop.api.checkout.cart.update') }}', { qty: this.applied.quantity })
                             .then(response => {
@@ -433,11 +439,11 @@
 
                                 this.$emitter.emit('add-flash', { type: 'success', message: response.data.message });
 
-                                this.$refs.updateCart.isLoading = false;
+                                this.isStoring = false;
 
                             })
                             .catch(error => {
-                                this.$refs.updateCart.isLoading = false;
+                                this.isStoring = false;
                             });
                     },
 
@@ -490,8 +496,11 @@
                             agree: () => {
                                 const selectedItemsIds = this.cart.items.flatMap(item => item.selected ? item.id : []);
 
+                                const selectedItemsQty = this.cart.items.filter(item => item.selected).map(item => this.applied.quantity[item.id] ?? item.quantity);
+
                                 this.$axios.post('{{ route('shop.api.checkout.cart.move_to_wishlist') }}', {
                                         'ids': selectedItemsIds,
+                                        'qty': selectedItemsQty
                                     })
                                     .then(response => {
                                         this.cart = response.data.data;

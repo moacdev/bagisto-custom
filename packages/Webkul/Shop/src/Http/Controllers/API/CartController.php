@@ -144,8 +144,10 @@ class CartController extends APIController
      */
     public function moveToWishlist(): JsonResource
     {
-        foreach (request()->input('ids') as $id) {
-            Cart::moveToWishlist($id);
+        foreach (request()->input('ids') as $index => $id) {
+            $qty = request()->input('qty')[$index];
+
+            Cart::moveToWishlist($id, $qty);
         }
 
         return new JsonResource([
@@ -206,7 +208,7 @@ class CartController extends APIController
                     if (Cart::getCart()->coupon_code == $validatedData['code']) {
                         return new JsonResource([
                             'data'     => new CartResource(Cart::getCart()),
-                            'message'  => trans('shop::app.checkout.cart.coupon.success-apply'),
+                            'message'  => trans('shop::app.checkout.coupon.success-apply'),
                         ]);
                     }
                 }
@@ -219,7 +221,7 @@ class CartController extends APIController
         } catch (\Exception $e) {
             return (new JsonResource([
                 'data'    => new CartResource(Cart::getCart()),
-                'message' => trans('shop::app.checkout.cart.coupon.error'),
+                'message' => trans('shop::app.checkout.coupon.error'),
             ]))->response()->setStatusCode(Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
@@ -233,7 +235,7 @@ class CartController extends APIController
 
         return new JsonResource([
             'data'     => new CartResource(Cart::getCart()),
-            'message'  => trans('shop::app.checkout.cart.coupon.remove'),
+            'message'  => trans('shop::app.checkout.coupon.remove'),
         ]);
     }
 

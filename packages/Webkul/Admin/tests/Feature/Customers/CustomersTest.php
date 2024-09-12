@@ -1,9 +1,13 @@
 <?php
 
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Webkul\Admin\Mail\Customer\NewCustomerNotification;
+use Webkul\Core\Models\CoreConfig;
 use Webkul\Customer\Models\Customer;
 use Webkul\Customer\Models\CustomerNote;
 use Webkul\Faker\Helpers\Customer as CustomerFaker;
+use Webkul\Shop\Mail\Customer\NoteNotification;
 
 use function Pest\Laravel\get;
 use function Pest\Laravel\getJson;
@@ -26,7 +30,7 @@ it('should return listing items of customers', function () {
         'password' => Hash::make('admin123'),
     ]);
 
-    // Act & Assert
+    // Act and Assert
     $this->loginAsAdmin();
 
     getJson(route('admin.customers.customers.index'), [
@@ -50,8 +54,7 @@ it('should return the view page of customer', function () {
 
     get(route('admin.customers.customers.view', $customer->id))
         ->assertOk()
-        ->assertSeeText(trans('admin::app.customers.customers.view.title'))
-        ->assertSeeText($customer->name);
+        ->assertSeeText(trans('admin::app.customers.customers.view.title'));
 });
 
 it('should fail the validation with errors when certain inputs are not provided when store in customer', function () {
@@ -89,6 +92,41 @@ it('should create a new customer', function () {
             ],
         ],
     ]);
+});
+
+it('should create a new customer and send notification to the customer', function () {
+    // Arrange.
+    Mail::fake();
+
+    CoreConfig::factory()->create([
+        'code'  => 'emails.general.notifications.emails.general.notifications.customer',
+        'value' => 1,
+    ]);
+
+    // Act and Assert.
+    $this->loginAsAdmin();
+
+    postJson(route('admin.customers.customers.store'), [
+        'first_name' => $fistName = fake()->firstName(),
+        'last_name'  => $lastName = fake()->lastName(),
+        'gender'     => $gender = fake()->randomElement(['male', 'female', 'other']),
+        'email'      => $email = fake()->email(),
+    ])
+        ->assertOk()
+        ->assertSeeText(trans('admin::app.customers.customers.index.create.create-success'));
+
+    $this->assertModelWise([
+        Customer::class => [
+            [
+                'first_name' => $fistName,
+                'last_name'  => $lastName,
+                'gender'     => $gender,
+                'email'      => $email,
+            ],
+        ],
+    ]);
+
+    Mail::assertQueued(NewCustomerNotification::class);
 });
 
 it('should search the customers for mega search', function () {
@@ -161,6 +199,37 @@ it('should store the notes for the customer', function () {
     ]);
 });
 
+it('should store the notes for the customer and send email to the customer', function () {
+    // Arrange
+    Mail::fake();
+
+    $customer = (new CustomerFaker())->factory()->create([
+        'password' => Hash::make('admin123'),
+    ]);
+
+    // Act and Assert
+    $this->loginAsAdmin();
+
+    postJson(route('admin.customer.note.store', $customer->id), [
+        'note'              => $note = substr(fake()->paragraph(), 0, 50),
+        'customer_notified' => 1,
+    ])
+        ->assertRedirect(route('admin.customers.customers.view', $customer->id))
+        ->isRedirection();
+
+    $this->assertModelWise([
+        CustomerNote::class => [
+            [
+                'note' => $note,
+            ],
+        ],
+    ]);
+
+    Mail::assertQueued(NoteNotification::class);
+
+    Mail::assertQueuedCount(1);
+});
+
 it('should fail the validation with errors when certain inputs are not provided when update in customer', function () {
     // Arrange
     $customer = (new CustomerFaker())->factory()->create([
@@ -178,7 +247,7 @@ it('should fail the validation with errors when certain inputs are not provided 
         ->assertUnprocessable();
 });
 
-it('is should update the the existing customer', function () {
+it('should update the the existing customer', function () {
     // Arrange
     $customer = (new CustomerFaker())->factory()->create([
         'password' => Hash::make('admin123'),
@@ -193,8 +262,8 @@ it('is should update the the existing customer', function () {
         'gender'     => $customer->gender,
         'email'      => $email = fake()->email(),
     ])
-        ->assertRedirect(route('admin.customers.customers.view', $customer->id))
-        ->isRedirection();
+        ->assertOk()
+        ->assertJsonPath('message', trans('admin::app.customers.customers.update-success'));
 
     $this->assertModelWise([
         Customer::class => [

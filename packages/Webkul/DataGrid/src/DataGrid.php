@@ -259,6 +259,16 @@ abstract class DataGrid
                         break;
 
                     case ColumnTypeEnum::DATE_RANGE->value:
+                        $this->queryBuilder->where(function ($scopeQueryBuilder) use ($column, $requestedValues) {
+                            foreach ($requestedValues as $value) {
+                                $scopeQueryBuilder->whereBetween($column->getDatabaseColumnName(), [
+                                    ($value[0] ?? '').' 00:00:01',
+                                    ($value[1] ?? '').' 23:59:59',
+                                ]);
+                            }
+                        });
+
+                        break;
                     case ColumnTypeEnum::DATE_TIME_RANGE->value:
                         $this->queryBuilder->where(function ($scopeQueryBuilder) use ($column, $requestedValues) {
                             foreach ($requestedValues as $value) {
@@ -378,6 +388,8 @@ abstract class DataGrid
         }
 
         foreach ($paginator['data'] as $record) {
+            $record = $this->sanitizeRow($record);
+
             foreach ($this->columns as $column) {
                 if ($closure = $column->closure) {
                     $record->{$column->index} = $closure($record);
@@ -434,6 +446,31 @@ abstract class DataGrid
         $this->setQueryBuilder();
 
         $this->processRequest();
+    }
+
+    /**
+     * Prepare all the setup for datagrid.
+     */
+    public function sanitizeRow($row): \stdClass
+    {
+        /**
+         * Convert stdClass to array.
+         */
+        $tempRow = json_decode(json_encode($row), true);
+
+        foreach ($tempRow as $column => $value) {
+            if (! is_string($tempRow[$column])) {
+                continue;
+            }
+
+            if (is_array($value)) {
+                return $this->sanitizeRow($tempRow[$column]);
+            } else {
+                $row->{$column} = strip_tags($value);
+            }
+        }
+
+        return $row;
     }
 
     /**

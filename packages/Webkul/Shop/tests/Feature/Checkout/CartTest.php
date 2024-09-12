@@ -67,7 +67,7 @@ it('should display the cart items from the cart', function () {
         ->assertJsonPath('data.items.0.id', $cartItem->id)
         ->assertJsonPath('data.items.0.type', $product->type)
         ->assertJsonPath('data.items.0.name', $product->name)
-        ->assertJsonPath('data.haveStockableItems', true);
+        ->assertJsonPath('data.have_stockable_items', true);
 });
 
 it('should fails the validation error when the cart item id not provided when remove product items to the cart', function () {
@@ -127,7 +127,7 @@ it('should fails the validation error when the cart item id not provided when re
         ->assertUnprocessable();
 });
 
-it('should fails the validation error when the wrong cart item id not provided when remove product items to the cart', function () {
+it('should fails the validation error when the wrong cart item id provided when remove product items to the cart', function () {
     // Arrange
     $product = (new ProductFaker([
         'attributes' => [
@@ -180,7 +180,7 @@ it('should fails the validation error when the wrong cart item id not provided w
 
     // Act and Assert
     deleteJson(route('shop.api.checkout.cart.destroy'), [
-        'cart_item_id' => rand(10, 50),
+        'cart_item_id' => 'WRONG_ID',
     ])
         ->assertJsonValidationErrorFor('cart_item_id')
         ->assertUnprocessable();

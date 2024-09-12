@@ -11,6 +11,7 @@ use Webkul\Attribute\Repositories\AttributeRepository;
 use Webkul\Core\Eloquent\Repository;
 use Webkul\Customer\Repositories\CustomerRepository;
 use Webkul\Marketing\Repositories\SearchSynonymRepository;
+use Webkul\Product\Contracts\Product;
 
 class ProductRepository extends Repository
 {
@@ -35,7 +36,7 @@ class ProductRepository extends Repository
      */
     public function model(): string
     {
-        return 'Webkul\Product\Contracts\Product';
+        return Product::class;
     }
 
     /**
@@ -138,24 +139,32 @@ class ProductRepository extends Repository
 
     /**
      * Retrieve product from slug without throwing an exception.
-     *
-     * @param  string  $slug
-     * @return \Webkul\Product\Contracts\Product
      */
-    public function findBySlug($slug)
+    public function findBySlug(string $slug): ?Product
     {
+        if (core()->getConfigData('catalog.products.storefront.search_mode') == 'elastic') {
+            $indices = $this->elasticSearchRepository->search([
+                'url_key' => $slug,
+            ], [
+                'type'  => '',
+                'from'  => 0,
+                'limit' => 1,
+                'sort'  => 'id',
+                'order' => 'desc',
+            ]);
+
+            return $this->find(current($indices['ids']));
+        }
+
         return $this->findByAttributeCode('url_key', $slug);
     }
 
     /**
      * Retrieve product from slug.
-     *
-     * @param  string  $slug
-     * @return \Webkul\Product\Contracts\Product
      */
-    public function findBySlugOrFail($slug)
+    public function findBySlugOrFail(string $slug): ?Product
     {
-        $product = $this->findByAttributeCode('url_key', $slug);
+        $product = $this->findBySlug($slug);
 
         if (! $product) {
             throw (new ModelNotFoundException)->setModel(
@@ -175,13 +184,13 @@ class ProductRepository extends Repository
      *
      * @return \Illuminate\Support\Collection
      */
-    public function getAll()
+    public function getAll(array $params = [])
     {
         if (core()->getConfigData('catalog.products.storefront.search_mode') == 'elastic') {
-            return $this->searchFromElastic();
+            return $this->searchFromElastic($params);
         }
 
-        return $this->searchFromDatabase();
+        return $this->searchFromDatabase($params);
     }
 
     /**
@@ -193,13 +202,13 @@ class ProductRepository extends Repository
      *
      * @return \Illuminate\Support\Collection
      */
-    public function searchFromDatabase()
+    public function searchFromDatabase(array $params = [])
     {
         $params = array_merge([
             'status'               => 1,
             'visible_individually' => 1,
             'url_key'              => null,
-        ], request()->input());
+        ], $params);
 
         if (! empty($params['query'])) {
             $params['name'] = $params['query'];
@@ -330,14 +339,7 @@ class ProductRepository extends Repository
                     }
                 });
 
-                /**
-                 * This is key! if a product has been filtered down to the same number of attributes that we filtered on,
-                 * we know that it has matched all of the requested filters.
-                 *
-                 * To Do (@devansh): Need to monitor this.
-                 */
                 $qb->groupBy('products.id');
-                $qb->havingRaw('COUNT(*) = '.count($attributes));
             }
 
             /**
@@ -373,36 +375,9 @@ class ProductRepository extends Repository
             return $qb->groupBy('products.id');
         });
 
-        /**
-         * Apply scope query so we can fetch the raw sql and perform a count.
-         */
-        $query->applyScope();
-
-        $countQuery = clone $query->model;
-
-        $count = collect(
-            DB::select("select count(id) as aggregate from ({$countQuery->select('products.id')->reorder('products.id')->toSql()}) c",
-                $countQuery->getBindings())
-        )->pluck('aggregate')->first();
-
-        $items = [];
-
         $limit = $this->getPerPageLimit($params);
 
-        $currentPage = Paginator::resolveCurrentPage('page');
-
-        if ($count > 0) {
-            $query->scopeQuery(function ($query) use ($currentPage, $limit) {
-                return $query->forPage($currentPage, $limit);
-            });
-
-            $items = $query->get();
-        }
-
-        return new LengthAwarePaginator($items, $count, $limit, $currentPage, [
-            'path'  => request()->url(),
-            'query' => request()->query(),
-        ]);
+        return $query->paginate($limit);
     }
 
     /**
@@ -414,18 +389,15 @@ class ProductRepository extends Repository
      *
      * @return \Illuminate\Support\Collection
      */
-    public function searchFromElastic()
+    public function searchFromElastic(array $params = [])
     {
-        $params = request()->input();
-
         $currentPage = Paginator::resolveCurrentPage('page');
 
         $limit = $this->getPerPageLimit($params);
 
         $sortOptions = $this->getSortOptions($params);
 
-        $indices = $this->elasticSearchRepository->search($params['category_id'] ?? null, [
-            'type'  => $params['type'] ?? '',
+        $indices = $this->elasticSearchRepository->search($params, [
             'from'  => ($currentPage * $limit) - $limit,
             'limit' => $limit,
             'sort'  => $sortOptions['sort'],
@@ -454,9 +426,8 @@ class ProductRepository extends Repository
 
         $results = new LengthAwarePaginator($items, $indices['total'], $limit, $currentPage, [
             'path'  => request()->url(),
-            'query' => request()->query(),
-        ]
-        );
+            'query' => $params,
+        ]);
 
         return $results;
     }

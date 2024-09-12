@@ -1,28 +1,32 @@
-{!! view_render_event('bagisto.shop.checkout.shipping.method.before') !!}
+{!! view_render_event('bagisto.shop.checkout.onepage.shipping.before') !!}
 
-<v-shipping-method ref="vShippingMethod">
+<v-shipping-methods
+    :methods="shippingMethods"
+    @processing="stepForward"
+    @processed="stepProcessed"
+>
     <!-- Shipping Method Shimmer Effect -->
     <x-shop::shimmer.checkout.onepage.shipping-method />
-</v-shipping-method>
+</v-shipping-methods>
 
-{!! view_render_event('bagisto.shop.checkout.shipping.method.after') !!}
+{!! view_render_event('bagisto.shop.checkout.onepage.shipping.after') !!}
 
 @pushOnce('scripts')
     <script
         type="text/x-template"
-        id="v-shipping-method-template"
+        id="v-shipping-methods-template"
     >
         <div class="mb-7">
-            <template v-if="! isShowShippingMethod && isShippingMethodLoading">
+            <template v-if="! methods">
                 <!-- Shipping Method Shimmer Effect -->
                 <x-shop::shimmer.checkout.onepage.shipping-method />
             </template>
 
-            <template v-if="isShowShippingMethod">
-                {!! view_render_event('bagisto.shop.checkout.onepage.shipping-method.accordion.before') !!}
-
+            <template v-else>
+                <!-- Accordion Blade Component -->
                 <x-shop::accordion class="!border-b-0">
-                    <x-slot:header class="!p-0">
+                    <!-- Accordion Blade Component Header -->
+                    <x-slot:header class="!py-4 !px-0">
                         <div class="flex justify-between items-center">
                             <h2 class="text-2xl font-medium max-sm:text-xl">
                                 @lang('shop::app.checkout.onepage.shipping.shipping-method')
@@ -30,15 +34,16 @@
                         </div>
                     </x-slot>
 
+                    <!-- Accordion Blade Component Content -->
                     <x-slot:content class="!p-0 mt-8">
                         <div class="flex flex-wrap gap-8">
                             <div
                                 class="relative max-w-[218px] max-sm:max-w-full max-sm:flex-auto select-none"
-                                v-for="shippingMethod in shippingMethods"
+                                v-for="method in methods"
                             >
-                                {!! view_render_event('bagisto.shop.checkout.onepage.shipping-method.before') !!}
+                                {!! view_render_event('bagisto.shop.checkout.onepage.shipping.before') !!}
 
-                                <div v-for="rate in shippingMethod.rates">
+                                <div v-for="rate in method.rates">
                                     <input 
                                         type="radio"
                                         name="shipping_method"
@@ -70,54 +75,50 @@
                                     </label>
                                 </div>
 
-                                {!! view_render_event('bagisto.shop.checkout.onepage.shipping-method.after') !!}
+                                {!! view_render_event('bagisto.shop.checkout.onepage.shipping.after') !!}
                             </div>
                         </div>
                     </x-slot>
                 </x-shop::accordion>
-
-                {!! view_render_event('bagisto.shop.checkout.onepage.shipping-method.accordion.after') !!}
             </template>
         </div>
     </script>
 
     <script type="module">
-        app.component('v-shipping-method', {
-            template: '#v-shipping-method-template',
+        app.component('v-shipping-methods', {
+            template: '#v-shipping-methods-template',
 
-            data() {
-                return {
-                    shippingMethods: [],
-
-                    isShowShippingMethod: false,
-
-                    isShippingMethodLoading: false,
-                }
+            props: {
+                methods: {
+                    type: Object,
+                    required: true,
+                    default: () => null,
+                },
             },
 
+            emits: ['processing', 'processed'],
+
             methods: {
-                store(selectedShippingMethod) {
-                    this.$parent.$refs.vCartSummary.canPlaceOrder = false;
-
-                    this.$parent.$refs.vPaymentMethod.isShowPaymentMethod = false;
-
-                    this.$parent.$refs.vPaymentMethod.isPaymentMethodLoading = true;
+                store(selectedMethod) {
+                    this.$emit('processing', 'payment');
 
                     this.$axios.post("{{ route('shop.checkout.onepage.shipping_methods.store') }}", {    
-                            shipping_method: selectedShippingMethod,
+                            shipping_method: selectedMethod,
                         })
                         .then(response => {
-                            this.$parent.getOrderSummary();
-                            
-                            this.$emitter.emit('after-shipping-method-selected', selectedShippingMethod);
-
-                            this.$parent.$refs.vPaymentMethod.payment_methods = response.data.payment_methods;
-                                
-                            this.$parent.$refs.vPaymentMethod.isShowPaymentMethod = true;
-
-                            this.$parent.$refs.vPaymentMethod.isPaymentMethodLoading = false;
+                            if (response.data.redirect_url) {
+                                window.location.href = response.data.redirect_url;
+                            } else {
+                                this.$emit('processed', response.data.payment_methods);
+                            }
                         })
-                        .catch(error => {});
+                        .catch(error => {
+                            this.$emit('processing', 'shipping');
+
+                            if (error.response.data.redirect_url) {
+                                window.location.href = error.response.data.redirect_url;
+                            }
+                        });
                 },
             },
         });
